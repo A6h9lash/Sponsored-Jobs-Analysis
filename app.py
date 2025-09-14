@@ -222,7 +222,7 @@ st.markdown("""
 
 # Configuration for data sources
 DATA_SOURCES = {
-    "google_drive": "https://drive.google.com/uc?export=download&id=YOUR_GOOGLE_DRIVE_FILE_ID_HERE",
+    "google_drive": "https://drive.google.com/uc?export=download&id=1r7edihohwiAi6etgXNkF7Cj1efwc_3UV",
     "postgresql": {
         "connection_string": "postgresql://postgres:5gsoJG24_qmCnSqM@34.132.93.79:5432/solwizz",
         "sql_query": """
