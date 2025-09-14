@@ -14,11 +14,6 @@ import os
 import html
 from typing import Dict, List, Tuple
 import warnings
-import requests
-import io
-from urllib.parse import urlparse
-import psycopg2
-from sqlalchemy import create_engine
 warnings.filterwarnings('ignore')
 
 # Page configuration
@@ -220,108 +215,27 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Configuration for data sources
-DATA_SOURCES = {
-    "google_drive": "https://drive.google.com/uc?export=download&id=1r7edihohwiAi6etgXNkF7Cj1efwc_3UV",
-    "postgresql": {
-        "connection_string": "postgresql://postgres:5gsoJG24_qmCnSqM@34.132.93.79:5432/solwizz",
-        "sql_query": """
-        SELECT j.*, jr.id AS "jobRoleId", jr.name as "jobRoleName"
-        FROM public."Job" j
-        LEFT JOIN public."JobRole" jr ON j."roleId" = jr.id
-        ORDER BY j.id ASC;
-        """
-    }
-}
-
 @st.cache_data
 def load_parquet_data(file_path: str):
-    """Load and cache parquet data from Google Drive URL"""
-    try:
-        st.info("📥 Loading data from Google Drive... This may take a moment for large files.")
-        
-        # For Google Drive links, we need to handle the download properly
-        if 'drive.google.com' in file_path:
-            # Extract file ID from Google Drive URL
-            file_id = file_path.split('id=')[1].split('&')[0] if 'id=' in file_path else None
-            if file_id:
-                # Use direct download link for Google Drive
-                download_url = f"https://drive.google.com/uc?export=download&id={file_id}"
-            else:
-                download_url = file_path
-        else:
-            download_url = file_path
-        
-        # Download the file
-        response = requests.get(download_url, stream=True)
-        response.raise_for_status()
-        
-        # Read the content into a BytesIO object
-        content = io.BytesIO(response.content)
-        
-        # Load parquet from BytesIO
-        return pd.read_parquet(content)
-            
-    except requests.exceptions.RequestException as e:
-        st.error(f"Failed to download data from Google Drive: {e}")
-        st.info("💡 **Troubleshooting Tips:**")
-        st.info("1. Make sure the Google Drive link is set to 'Anyone with the link can view'")
-        st.info("2. Use the direct download link format: https://drive.google.com/uc?export=download&id=YOUR_FILE_ID")
-        st.info("3. Check your internet connection")
-        raise
-    except Exception as e:
-        st.error(f"Error loading data from Google Drive: {e}")
-        raise
-
-@st.cache_data
-def load_postgresql_data(db_config: dict):
-    """Load and cache data from PostgreSQL database"""
-    try:
-        st.info("🗄️ Loading data from PostgreSQL database...")
-        
-        # Create SQLAlchemy engine using the connection string
-        engine = create_engine(db_config['connection_string'])
-        
-        # Load data from database using the custom SQL query
-        df = pd.read_sql_query(db_config['sql_query'], engine)
-        
-        # Close the engine
-        engine.dispose()
-        
-        return df
-        
-    except Exception as e:
-        st.error(f"Failed to load data from PostgreSQL: {e}")
-        st.info("💡 **Troubleshooting Tips:**")
-        st.info("1. Check your database connection parameters")
-        st.info("2. Ensure the tables 'Job' and 'JobRole' exist and have the correct structure")
-        st.info("3. Verify your database credentials and permissions")
-        st.info("4. Make sure your database server is accessible")
-        st.info("5. Check if the JOIN between Job and JobRole tables is working correctly")
-        raise
+    """Load and cache parquet data"""
+    return pd.read_parquet(file_path)
 
 class SponsoredJobsAnalyzer:
-    def __init__(self, data_source: str = "google_drive"):
-        """Initialize the analyzer with data source configuration"""
-        self.data_source = data_source
-        self.data_config = DATA_SOURCES.get(data_source, DATA_SOURCES["google_drive"])
+    def __init__(self, parquet_file_path: str = "H1B-Sponsored-Jobs.parquet"):
+        """Initialize the analyzer with data file path"""
+        self.parquet_file_path = parquet_file_path
         self.df = None
         self.roles = None
         self.companies = None
         
     def load_data(self) -> bool:
-        """Load and cache data from Google Drive or PostgreSQL"""
+        """Load and cache data from parquet file"""
         try:
-            # Load data based on source type
-            if self.data_source == "google_drive":
-                with st.spinner("Loading data from Google Drive... This may take a few minutes for large files."):
-                    self.df = load_parquet_data(self.data_config)
-            elif self.data_source == "postgresql":
-                with st.spinner("Loading data from PostgreSQL database..."):
-                    self.df = load_postgresql_data(self.data_config)
-            else:
-                st.error(f"Unknown data source: {self.data_source}")
+            if not os.path.exists(self.parquet_file_path):
+                st.error(f"Data file '{self.parquet_file_path}' not found!")
                 return False
+                
+            self.df = load_parquet_data(self.parquet_file_path)
             
             # Check required columns
             required_columns = ['Sponsored Job?', 'jobRoleName']
@@ -1503,89 +1417,15 @@ def display_data_explorer(analyzer):
 
 def main():
     """Main application function"""
-    # Data source selection in sidebar
-    st.sidebar.title("Data Configuration")
-    data_source = st.sidebar.selectbox(
-        "Choose Data Source:",
-        ["google_drive", "postgresql"],
-        format_func=lambda x: "Google Drive" if x == "google_drive" else "PostgreSQL Database",
-        help="Select where to load the data from"
-    )
-    
-    # Show current configuration
-    if data_source == "google_drive":
-        st.sidebar.info("🌐 **Google Drive Mode**")
-        st.sidebar.info("Make sure to update the Google Drive link in the code!")
-    else:
-        st.sidebar.info("🗄️ **PostgreSQL Mode**")
-        st.sidebar.info("Make sure to update the database connection details in the code!")
-    
-    # Initialize analyzer with selected data source
-    analyzer = SponsoredJobsAnalyzer(data_source)
+    # Initialize analyzer
+    analyzer = SponsoredJobsAnalyzer()
     
     # Load data
     if not analyzer.load_data():
-        st.error("Failed to load data. Please check your configuration.")
+        st.error("Failed to load data. Please check if the parquet file exists.")
         st.sidebar.markdown("---")
-        st.sidebar.markdown("**Data Source:** " + ("Google Drive" if data_source == "google_drive" else "PostgreSQL Database"))
+        st.sidebar.markdown("**Data Source:** H1B-Sponsored-Jobs.parquet")
         st.sidebar.markdown("**Status:** Data loading failed")
-        
-        # Show setup instructions
-        if data_source == "google_drive":
-            st.markdown("## 🔧 Google Drive Setup Instructions")
-            st.markdown("""
-            ### Step 1: Upload Your File to Google Drive
-            1. Go to [Google Drive](https://drive.google.com)
-            2. Upload your `H1B-Sponsored-Jobs.parquet` file
-            3. Right-click the file → "Share" → "Change to anyone with the link"
-            4. Copy the sharing link
-            
-            ### Step 2: Get the File ID
-            Your sharing link will look like: `https://drive.google.com/file/d/FILE_ID_HERE/view?usp=sharing`
-            Copy the `FILE_ID_HERE` part.
-            
-            ### Step 3: Update the Code
-            In `app.py`, find this line:
-            ```python
-            "google_drive": "https://drive.google.com/uc?export=download&id=YOUR_GOOGLE_DRIVE_FILE_ID_HERE"
-            ```
-            Replace `YOUR_GOOGLE_DRIVE_FILE_ID_HERE` with your actual file ID.
-            """)
-        elif data_source == "postgresql":
-            st.markdown("## 🔧 PostgreSQL Setup Instructions")
-            st.markdown("""
-            ### ✅ Database Configuration Complete
-            Your PostgreSQL database is already configured with:
-            - **Host**: 34.132.93.79:5432
-            - **Database**: solwizz
-            - **Tables**: Job and JobRole (with JOIN query)
-            
-            ### Database Schema
-            The app uses this SQL query to fetch data:
-            ```sql
-            SELECT j.*, jr.id AS "jobRoleId", jr.name as "jobRoleName"
-            FROM public."Job" j
-            LEFT JOIN public."JobRole" jr ON j."roleId" = jr.id
-            ORDER BY j.id ASC;
-            ```
-            
-            ### Required Columns
-            Your Job table should have columns like:
-            - `Sponsored Job?` (text: 'Yes' or 'No')
-            - `company` (text)
-            - `location` (text)
-            - `title` (text)
-            - `url` (text)
-            - `datePosted` (date/timestamp)
-            - `roleId` (foreign key to JobRole table)
-            
-            Your JobRole table should have:
-            - `id` (primary key)
-            - `name` (job role name)
-            
-            ### Connection Status
-            The app will automatically connect to your database when you select "PostgreSQL Database" as the data source.
-            """)
         return
     
     # Sidebar navigation
@@ -1617,16 +1457,10 @@ def main():
     # Footer - only show if data is loaded successfully
     if analyzer.df is not None and analyzer.roles is not None and analyzer.companies is not None:
         st.sidebar.markdown("---")
-        st.sidebar.markdown("**Data Source:** " + ("Google Drive" if data_source == "google_drive" else "PostgreSQL Database"))
+        st.sidebar.markdown("**Data Source:** H1B-Sponsored-Jobs.parquet")
         st.sidebar.markdown(f"**Total Jobs:** {len(analyzer.df):,}")
         st.sidebar.markdown(f"**Unique Roles:** {len(analyzer.roles):,}")
         st.sidebar.markdown(f"**Unique Companies:** {len(analyzer.companies):,}")
-        
-        # Show data source info
-        if data_source == "google_drive":
-            st.sidebar.markdown("**Status:** ✅ Cloud data loaded successfully")
-        else:
-            st.sidebar.markdown("**Status:** ✅ Database data loaded successfully")
 
 if __name__ == "__main__":
     main()
